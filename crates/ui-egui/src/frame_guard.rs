@@ -11,6 +11,28 @@ use crate::PdfCraftApp;
 const MAX_PANICKING_FRAMES: u32 = 3;
 
 impl PdfCraftApp {
+    /// Before `logic`. While the window is hidden eframe runs `logic` without `ui`, so a
+    /// `logic` that ran cleanly with no `ui` after it ends the run of panicking frames here.
+    pub(crate) fn begin_logic(&mut self) {
+        if self.logic_without_ui && !self.frame_panicked {
+            self.panicking_frames = 0;
+        }
+        self.frame_panicked = false;
+        self.logic_without_ui = true;
+    }
+
+    /// Before `ui`: this frame's `logic` is followed by drawing.
+    pub(crate) fn begin_ui(&mut self) {
+        self.logic_without_ui = false;
+    }
+
+    /// After `ui`: a frame whose logic and drawing both ran cleanly ends the run.
+    pub(crate) fn end_ui(&mut self) {
+        if !self.frame_panicked {
+            self.panicking_frames = 0;
+        }
+    }
+
     /// Run one part of the frame (`logic` or `ui`) under the guard.
     pub(crate) fn guarded_frame(&mut self, part: impl FnOnce(&mut PdfCraftApp)) {
         if let Err(message) = pdfcraft_engine::guard(|| part(self)) {
@@ -164,6 +186,33 @@ mod tests {
         let ended = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| h.run_steps(MAX_PANICKING_FRAMES as usize)));
         assert!(ended.is_err(), "an app that can't draw a single frame isn't kept running");
         assert_eq!(snapshots(&store), 1, "its unsaved tab is offered for recovery on the next start");
+    }
+
+    #[test]
+    fn hidden_frames_that_run_cleanly_reset_the_count() {
+        // eframe runs `logic` without `ui` while the window is hidden: panics separated by
+        // clean hidden frames are not "in a row" and must not end the app.
+        let mut app = PdfCraftApp::new();
+        for _ in 0..MAX_PANICKING_FRAMES * 2 {
+            app.begin_logic();
+            app.guarded_frame(|_| panic!("hidden logic panic"));
+            app.begin_logic();
+            app.guarded_frame(|_| {});
+        }
+        app.begin_logic();
+        assert_eq!(app.panicking_frames, 0, "a clean hidden frame resets the count");
+    }
+
+    #[test]
+    fn hidden_frames_that_keep_panicking_still_end_the_app() {
+        let mut app = PdfCraftApp::new();
+        let ended = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            for _ in 0..MAX_PANICKING_FRAMES {
+                app.begin_logic();
+                app.guarded_frame(|_| panic!("hidden logic panic"));
+            }
+        }));
+        assert!(ended.is_err(), "panics in every hidden frame still reach the limit");
     }
 
     #[test]

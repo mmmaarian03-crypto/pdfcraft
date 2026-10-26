@@ -151,6 +151,7 @@ impl PdfCraftApp {
             run_inline: false,
             panicking_frames: 0,
             frame_panicked: false,
+            logic_without_ui: false,
             #[cfg(test)]
             panic_next: None,
             custom_actions: Vec::new(),
@@ -347,15 +348,14 @@ impl eframe::App for PdfCraftApp {
     /// Last-resort guard (AGENTS.md §4, #3914): a panic in a frame is reported and the app, with
     /// every open tab, keeps running; see `frame_guard`.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.frame_panicked = false;
+        self.begin_logic();
         self.guarded_frame(|app| app.logic_unguarded(ctx));
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.begin_ui();
         self.guarded_frame(|app| app.ui_unguarded(ui));
-        if !self.frame_panicked {
-            self.panicking_frames = 0;
-        }
+        self.end_ui();
     }
 }
 
