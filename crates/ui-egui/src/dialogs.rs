@@ -122,10 +122,14 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
     let mut req = Pending::default();
     // Every dialog shares this modal. A different dialog than the one shown before starts from
     // its own size, not from the last one's: rows that fill the height they are offered would
-    // otherwise keep, say, Print as tall as Preferences (#5118). Tabs of one dialog keep its size.
+    // otherwise keep, say, Print as tall as Preferences (#5118). Tabs of one dialog keep its size;
+    // the kinds of Marks and Export are different dialogs.
     let shown = egui::Id::unique("dialog").with("shown");
-    let kind = std::mem::discriminant(&dialog);
-    let remeasure = ctx.data(|d| d.get_temp::<std::mem::Discriminant<Dialog>>(shown)) != Some(kind);
+    let kind = match dialog {
+        Dialog::Properties(_) => Dialog::Properties(PropsTab::Description),
+        _ => dialog,
+    };
+    let remeasure = ctx.data(|d| d.get_temp::<Dialog>(shown)) != Some(kind);
     ctx.data_mut(|d| d.insert_temp(shown, kind));
     let modal = widgets::show_modal_sized(ctx, "dialog", remeasure, |ui| {
         ui.set_width(match dialog {
