@@ -366,3 +366,22 @@ fn opening_a_file_that_is_open_focuses_its_tab() {
     let app = h.state();
     assert_eq!((app.views.len(), app.active, app.views[0].id), (2, Some(0), id), "focused, not opened again");
 }
+
+#[test]
+fn a_file_rebuilt_under_an_open_dialog_reloads_when_the_dialog_closes() {
+    // #3917: a dialog's OK acts on the active document. Reloading it in place while the dialog is
+    // open would apply the dialog (Rotate, Protect, Comment Properties…) to the new version.
+    let file = TempPdf::new("under-dialog", &fixture(2));
+    let mut h = harness(&file.path);
+    h.state_mut().dialog = Some(pdfcraft_ui_egui::Dialog::RotatePages);
+    h.run_steps(2);
+    file.rebuild(&fixture(4));
+    h.run_steps(4);
+    assert_eq!(pages(&h), 2, "not replaced under the dialog");
+    file.rebuild(&fixture(5));
+    h.run_steps(4);
+    assert_eq!(pages(&h), 2, "still not replaced under the dialog");
+    h.state_mut().dialog = None;
+    h.run_steps(3);
+    assert_eq!((pages(&h), dirty(&h)), (5, false), "the newest version is applied once the dialog closes");
+}

@@ -288,6 +288,9 @@ pub struct FileWatch {
     epoch: HashMap<DocId, u64>,
     /// The notice bar's Reload was pressed for this document.
     pub reload_request: Option<DocId>,
+    /// The newest version found for the active document while a dialog was open over it,
+    /// applied when the dialog closes (#3917).
+    held: Option<Changed>,
 }
 
 impl FileWatch {
@@ -363,7 +366,12 @@ impl PdfCraftApp {
             let (found, _) = self.watch.inline.tick();
             self.watch.found.lock().unwrap_or_else(PoisonError::into_inner).extend(found);
         }
-        let found = std::mem::take(&mut *self.watch.found.lock().unwrap_or_else(PoisonError::into_inner));
+        let mut found = std::mem::take(&mut *self.watch.found.lock().unwrap_or_else(PoisonError::into_inner));
+        if !self.modal_open()
+            && let Some(held) = self.watch.held.take()
+        {
+            found.insert(0, held);
+        }
         for c in found {
             self.file_changed(c);
         }
@@ -400,6 +408,13 @@ impl PdfCraftApp {
     /// changes.
     fn file_changed(&mut self, c: Changed) {
         let Some(i) = self.views.iter().position(|v| v.id == c.doc) else { return };
+        // A dialog acts on the active document when its OK is pressed: replacing the document
+        // under it would apply the dialog to another version (#3917). Keep the newest version
+        // found until the dialog closes; the checks below run then.
+        if self.modal_open() && self.active == Some(i) {
+            self.watch.held = Some(c);
+            return;
+        }
         // Found for an earlier reading or writing of the file, or for another file than the
         // document's now (a save, Save As or a reopen came between): older than the document in
         // memory, so it is not applied over it (#1802). The watcher was told the newer version.
