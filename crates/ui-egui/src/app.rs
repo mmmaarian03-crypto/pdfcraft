@@ -350,6 +350,9 @@ impl eframe::App for PdfCraftApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.begin_logic();
         self.guarded_frame(|app| app.logic_unguarded(ctx));
+        if self.frame_panicked {
+            self.close_after_panic(ctx);
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

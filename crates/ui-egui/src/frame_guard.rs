@@ -66,6 +66,16 @@ impl PdfCraftApp {
         }
     }
 
+    /// After `logic` panicked, perhaps before its quit guard ran: a close of the window asked for
+    /// in this frame still asks about unsaved changes, or eframe closes it and what the recovery
+    /// snapshot doesn't hold (a text being typed) is lost. If even that panics, the close is
+    /// cancelled; the user can close again.
+    pub(crate) fn close_after_panic(&mut self, ctx: &egui::Context) {
+        if ctx.input(|i| i.viewport().close_requested()) && pdfcraft_engine::guard(|| self.hold_close_for_unsaved(ctx)).is_err() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        }
+    }
+
     /// `active` names an open tab, or nothing: a panic part way through closing or replacing a
     /// tab can leave it past the end, and the next frame would index out of bounds unguarded.
     pub(crate) fn keep_active_valid(&mut self) {
@@ -175,6 +185,21 @@ mod tests {
         assert_eq!(h.state().views.len(), 2);
         assert!(toast(&h).contains("injected Logic panic"), "{}", toast(&h));
         assert_eq!(snapshots(&store), 1);
+    }
+
+    #[test]
+    fn closing_the_window_in_a_frame_whose_logic_panics_still_asks_about_unsaved_changes() {
+        // The panic comes before the quit guard runs: without the question eframe closes the
+        // window, and what isn't in the recovery snapshot (a text being typed) is lost.
+        let store = Store::new("quit");
+        let mut h = harness(&store);
+        h.state_mut().dialog = None;
+        h.state_mut().panic_next = Some(FramePart::Logic);
+        h.input_mut().viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
+        h.run_steps(1);
+        h.state_mut().panic_next = None;
+        h.run_steps(1);
+        assert_eq!(h.state().close_request, Some(crate::CloseRequest::Quit), "the save question is asked");
     }
 
     #[test]
