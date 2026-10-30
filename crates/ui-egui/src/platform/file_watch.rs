@@ -367,14 +367,24 @@ impl PdfCraftApp {
             self.watch.found.lock().unwrap_or_else(PoisonError::into_inner).extend(found);
         }
         let mut found = std::mem::take(&mut *self.watch.found.lock().unwrap_or_else(PoisonError::into_inner));
-        if !self.modal_open()
+        if !self.holds_reload()
             && let Some(held) = self.watch.held.take()
         {
-            found.insert(0, held);
+            // Dropped when reloading was turned off meanwhile (in Preferences, the dialog itself)
+            // or when a newer version of the same document was just found: only that one loads.
+            if self.reload_changed_files && !found.iter().any(|c| c.doc == held.doc) {
+                found.insert(0, held);
+            }
         }
         for c in found {
             self.file_changed(c);
         }
+    }
+
+    /// A dialog or prompt about the active document is open: its new version waits (#3917). The
+    /// full-screen prompt is not modal elsewhere, but it is about the version on screen.
+    fn holds_reload(&self) -> bool {
+        self.modal_open() || self.pending_full_screen.is_some()
     }
 
     /// Hand `list` to the watcher, starting it when needed. `false`: not delivered (no context
@@ -411,7 +421,7 @@ impl PdfCraftApp {
         // A dialog acts on the active document when its OK is pressed: replacing the document
         // under it would apply the dialog to another version (#3917). Keep the newest version
         // found until the dialog closes; the checks below run then.
-        if self.modal_open() && self.active == Some(i) {
+        if self.holds_reload() && self.active == Some(i) {
             self.watch.held = Some(c);
             return;
         }
